@@ -94,8 +94,13 @@ def main(filename):
 			
 			if m is None:
 				# Using what we aleady have if the read does not have T(s) at the start
-				new_rest = rest
-				new_rest_qual = qual_rest
+				#new_rest = rest
+				#new_rest_qual = qual_rest
+				# we still want to remove a base even if it wasn't called as a T. The quality scores are low at this position as all the reads should have a T here.
+				new_rest      = rest[1::]
+				new_rest_qual = qual_rest[1::]
+				
+				
 				
 			else:
 				polyTlength = len(m[0])
