@@ -2,12 +2,6 @@
 
 # Usage: module load python 
 # python ./umibam2.py --verbose bamfile
-# /bi/group/bioinf/Neesha_Kara/trael_updates/umibam/umibam2.py
-
-# if the mapq value < 20, then we also want to dedup by UMI, but not by position.
-# In this version we're going to change the approach for the low mapq reads - there can only be a maximum of 65,536 8bp umis (4^8),
-# so we're chucking away a load of reads, we'll try taking the first .
-# we're going to go through the bam file and extract positions and umis
 import getopt
 import sys
 import os
