@@ -9,6 +9,8 @@ import argparse
 import gzip
 import pysam
 from argparse import RawTextHelpFormatter
+import hashlib
+import random
 
 input_file = ""
 verbose = False
@@ -31,7 +33,7 @@ print('\n-----------------------------------------------------------------------
 print(f'This only works for single ended data. For paired end, use the original UmiBam script for now.')
 print('-----------------------------------------------------------------------------------------------\n')
 print(f'Now processing {input_file}...' "\n")
-print(f'Deduplication summary will to written to {trimming_report}.'"\n")
+print(f'Deduplication summary will be written to {trimming_report}.'"\n")
 
 pos_umi_dup_count = 0
 pos_not_umi_dup_count = 0
@@ -45,10 +47,11 @@ lowqual_reads_processed = 0
 pos_umi_dict = {}
 umi_counts = {}
 chr_dict = {}
-low_mapq_reads = []
+#low_mapq_reads = [] remove this - it's not used
 umis_written = set()
 umis_written_lowqual = set()
 dup_pos_dict = {}
+all_lowqual = {}
 
 all_chr = samfile.references
 
@@ -59,6 +62,7 @@ all_chr = samfile.references
 # https://pysam.readthedocs.io/en/latest/usage.html
 for chr in all_chr:
     chr_dict[chr] = {}
+    all_lowqual[chr] = {}
     dup_pos_dict[chr] = set()
     all_reads_in_chr = samfile.fetch(reference=chr)
     for read in all_reads_in_chr:
@@ -95,20 +99,43 @@ for chr in all_chr:
                 outfile.write(read)
                 umis_written.add(umi)
         else:
+            lowqual_reads_processed+=1
             umi = read.query_name.split(":").pop() # ignoring position for mapq <= 20, instead using UMI + first 10 bases of sequence
             query_seq =  read.query_sequence
             longer_umi = umi+query_seq[:10]
             
-            lowqual_reads_processed+=1
-            if lowqual_reads_processed % 1000000 == 0:
-                if args.verbose:
-                    print(f'{lowqual_reads_processed:,} lowqual_reads processed...')
-            if longer_umi in umis_written_lowqual:
-                umi_dup+=1 # discard 
+            if longer_umi in all_lowqual[chr]:
+                all_lowqual[chr][longer_umi].append(read) # this is appending to a list right?
+
             else: 
-                umis_written_lowqual.add(longer_umi)
-                low_mapq_keep+=1
-                outfile.write(read)
+                all_lowqual[chr][longer_umi] = [read] # adding new long umi
+
+# Go through all the low qual reads, for each extended umi, select a random read.                 
+# The seed has been set dependent on the umi sequence, so the same read should be selected if the script is run multiple times.
+for chr in all_lowqual:
+    #print (chr)
+    chosen_read = None
+    for longer_umi in all_lowqual[chr]:
+        no_of_reads = len(all_lowqual[chr][longer_umi])
+        if no_of_reads >= 1: 
+            if no_of_reads > 1: 
+                #print (longer_umi)
+                #print(f'no of reads with same extended umi: {no_of_reads}')
+                umi_seed = int(hashlib.sha256(longer_umi.encode('utf-8')).hexdigest(), 16) % 10**3
+                #print(umi_seed)
+                random.seed(umi_seed)
+                random_int = random.randint(0, no_of_reads-1)
+                #print(f'random int = {random_int}')
+                chosen_read = all_lowqual[chr][longer_umi][random_int]
+                removed_reads=no_of_reads-1
+                umi_dup+=removed_reads
+                
+            else:
+                chosen_read = all_lowqual[chr][longer_umi][0] # There's only 1 read so we write it out 
+       
+            #print(f'chosen read = {chosen_read}')
+            low_mapq_keep+=1
+            outfile.write(chosen_read)                   
 
 outfile.close()
 
@@ -116,7 +143,6 @@ if args.verbose:
     print(f'Processed file {input_file}')
     print("\n"f'{first_occurrence+pos_not_umi_dup_count:,} deduplicated reads with mapq values > 20 have been written out.')
     print(f'Number of unique 8bp umis in high quality reads = {len(umis_written):,}')
-    print(f'Number of unique 18bp umis in low quality reads = {len(umis_written_lowqual):,}')
 
 # Count up how many duplicated positions we find - don't necessarily need to keep this in but it allows another comparison with the original umibam script.
 dup_position_count = 0
@@ -132,7 +158,6 @@ report_out.write("\n"f'Total reads processed: {reads_processed:,}')
 report_out.write("\n"f'Total reads removed: {total_removed:,}, {(total_removed/reads_processed)*100:.1f}%')
 report_out.write("\n"f'Total reads retained: {total_retained:,}, {(total_retained/reads_processed)*100:.1f}%'"\n")
 report_out.write("\n"f'Number of unique 8bp umis in high quality reads = {len(umis_written):,}')
-report_out.write("\n"f'Number of unique 18bp umis in low quality reads = {len(umis_written_lowqual):,}')
 report_out.write("\n"f'Duplicated alignments of high quality reads were found at: {dup_position_count} different positions'"\n")
 report_out.write("\n-------------more details-------------------------\n")
 report_out.write("\n"f'Unique reads or first occurrences found: {first_occurrence:,}')
