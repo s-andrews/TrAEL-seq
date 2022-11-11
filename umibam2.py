@@ -21,10 +21,12 @@ parser.add_argument('--verbose', default=False, action='store_true', help='verbo
 args=parser.parse_args()
 
 input_file = args.input_file
-output_file = input_file.replace(".bam", "")
-output_file = f'{output_file}_dedup_umibam2.bam'
+output_file = input_file.replace("_sorted", "")
+output_file = output_file.replace(".bam", "")
+output_file = f'{output_file}_dedup_umibam2.1.bam'
 trimming_report = input_file.replace(".bam", "")
-trimming_report = f'{trimming_report}_umibam2_dedup_report.txt'
+trimming_report = trimming_report.replace("_sorted", "")
+trimming_report = f'{trimming_report}_umibam2.1_dedup_report.txt'
 
 samfile = pysam.AlignmentFile(input_file, "rb")
 outfile = pysam.AlignmentFile(output_file, "wb", template=samfile)
