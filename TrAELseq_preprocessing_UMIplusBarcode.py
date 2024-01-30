@@ -10,27 +10,21 @@ import re
 
 # This is the expected structure of the FastQ files will be:
 
-# NNNNNNNNBBBB(A)nSEQUENCESPECIFIC whereas before it was NNNNNNNN(A)nSEQUENCESPECIFIC
-# NNNNNNNN (UMI)(8bp) // 
-# BBBB is the sample barcode (currently either AGTC or GACT) //
-# PolyA (A)n is the poly(A) //      
-# Insert
+# UMI (8bp)    //   sample-level barcode  4bp   //    PolyT     //      Insert
 
 # After moving the UMI and sample-level barcode sequences, the script looks for up to 3 T at the start of the sequence, and removes those.
 # Sequences with more than 3 Ts at the 5' end are clipped a maximum of 3 TTT
 
-# Script last modified  21 February 2022 to add some additional indexes, Felix Krueger
+# Script last modified  11 January 2024 Laura Biggins
 
 polyT = {}         # storing the number of Poly Ts at the start of the read (after the UMI)
 fhs = {}           # storing the filehandles for all output files
+fhs_noT = {}           # storing the filehandles for all no T output files
 
 def submain():
 	
 	print (f"Python version: {sys.version}.")
-	# allfiles = glob("*.fastq.gz")
-	# Changing to command line given list of arguments as infiles
 	allfiles = sys.argv[1:]
-	# print (allfiles)
 
 	allfiles.sort() # required as glob doesn't necessarily store files in alphabetical order
 	# print (allfiles)
@@ -40,6 +34,7 @@ def submain():
 		main(filename)
 		polyT.clear() # resetting
 		fhs.clear()   # resetting
+		fhs_noT.clear()   # resetting
 
 def main(filename):
 
@@ -52,7 +47,8 @@ def main(filename):
 	faithless_barcodes = {}
 
 	# making output filehandles
-	make_out_filehandle("UMIed",filename)
+	make_out_filehandle("UMIed",filename, "noT")
+	make_out_filehandle("UMIed",filename, "T")
 	with gzip.open(filename) as cf:
 	
 		while True:
@@ -93,14 +89,14 @@ def main(filename):
 			m = p.match(rest)
 			
 			if m is None:
+				print ("m is none")
 				# Using what we aleady have if the read does not have T(s) at the start
 				#new_rest = rest
 				#new_rest_qual = qual_rest
 				# we still want to remove a base even if it wasn't called as a T. The quality scores are low at this position as all the reads should have a T here.
 				new_rest      = rest[1::]
 				new_rest_qual = qual_rest[1::]
-				
-				
+								
 				
 			else:
 				polyTlength = len(m[0])
@@ -127,25 +123,24 @@ def main(filename):
 			
 			# print ("\n".join([readID, new_rest, line3, new_rest_qual]))
 
-			### First generation
-
-			# sample_level_barcode_1 = "AGTC"  ### first generation - now with a new supplier (Sept 03, 2021)
-			# # sample_level_barcode_2 = "GACT"  ### first generation
-			# sample_level_barcode_3 = "CTTG" 
-			# # sample_level_barcode_4 = "TCGA"
-			# sample_level_barcode_5 = "AAGG"
-			# sample_level_barcode_6 = "TTCC" 
-			# sample_level_barcode_7 = "GTGC" 
-			# sample_level_barcode_8 = "GCCA" 
-			# sample_level_barcode_9 = "GATG" 
-
-			# currently indexes 1, 3, 5, 6, 7, 8, 9
-			if sampleBarcode == "AGTC" or sampleBarcode == "CTTG" or sampleBarcode == "TCGA" or sampleBarcode == "TTCC" or sampleBarcode == "AAGG"or sampleBarcode == "GTGC" or sampleBarcode == "GCCA" or sampleBarcode == "GATG":
-				# print (f"Expected: {sampleBarcode}")
-				fhs[sampleBarcode].write (("\n".join([readID, new_rest, line3, new_rest_qual]) + "\n").encode())
+			# currently indexes 1, 3, 4, 5, 6, 7, 8, 9
+            # Dec 2022 Adding in 2
+			if sampleBarcode == "AGTC" or sampleBarcode == "GACT" or sampleBarcode == "CTTG" or sampleBarcode == "TCGA" or sampleBarcode == "AAGG" or sampleBarcode == "TTCC"  or sampleBarcode == "GTGC" or sampleBarcode == "GCCA" or sampleBarcode == "GATG":
+			#if sampleBarcode == "TTCC"  or sampleBarcode == "GTGC" or sampleBarcode == "GCCA":
+			# print (f"Expected: {sampleBarcode}")
+				if m is None:
+					print ("m is still none")
+					fhs_noT[sampleBarcode].write (("\n".join([readID, new_rest, line3, new_rest_qual]) + "\n").encode())
+				else:
+					fhs[sampleBarcode].write (("\n".join([readID, new_rest, line3, new_rest_qual]) + "\n").encode())
 			else:
 				# print (f"Unexpected/Unwanted")
-				fhs["unassigned"].write (("\n".join([readID, new_rest, line3, new_rest_qual]) + "\n").encode())
+				
+				if m is None:
+					fhs_noT["unassigned"].write (("\n".join([readID, new_rest, line3, new_rest_qual]) + "\n").encode())
+				else:
+					fhs["unassigned"].write (("\n".join([readID, new_rest, line3, new_rest_qual]) + "\n").encode())
+
 				if sampleBarcode not in faithless_barcodes.keys():
 					faithless_barcodes[sampleBarcode] = 0
 				faithless_barcodes[sampleBarcode] += 1
@@ -170,34 +165,13 @@ def main(filename):
 		if t_count == 10:
 			break
 
-def make_out_filehandle(sample_name,filename):
+def make_out_filehandle(sample_name,filename,TnoT):
 	
 	print (f"Got following sample name: {sample_name}")
 	
 	# extracting useful parts from filename
 	# Example name: lane7265_ACTTGA_fob1_YPD_LIGseq_L001_R1.fastq.gz
 	
-	### Update 21 July 2021
-	# 	TrAEL index	In the adaptor	What is actually read
-	# 1	GACT	agtc - no longer used
-	# 2	AGTC	gact - no longer used
-	# 3	CAAG	cttg
-	# 4	TCGA	tcga
-	# 5	GGAA	ttcc
-	# 6	CCTT	aagg
-
-	### Update 21 February 2022
-	# Index	In the adaptor	What is actually read	
-	# 1	GACT	agtc	
-	# 2	AGTC	gact	
-	# 3	CAAG	cttg	
-	# 4	TCGA	tcga	
-	# 5	CCTT	aagg	
-	# 6	GGAA	ttcc	new
-	# 7	GCAC	gtgc	new
-	# 8	TGGC	gcca	new
-	# 9	CATC	gatg	new
-
 	# We will also need to add the sample level barcodes to the filename.
 	sample_level_barcode_1 = "AGTC"  ### first generation - now with a new supplier (Sept 03, 2021)
 	sample_level_barcode_2 = "GACT"  ### first generation
@@ -214,7 +188,8 @@ def make_out_filehandle(sample_name,filename):
 	print (filename)
 	m = p.findall(filename)
 	sample = m[0][0]
-	ending = m[0][1]
+	#ending = m[0][1]
+	ending = f"{TnoT}_{m[0][1]}"
 
 	new_filenames = []
 	
@@ -250,18 +225,26 @@ def make_out_filehandle(sample_name,filename):
 	new_filenames.append(f"{new_filename_10}:unassigned")
 
 	for new_fh in new_filenames:
-		open_filehandles(new_fh.split(":")[1], new_fh.split(":")[0])
+		#open_filehandles(new_fh.split(":")[1], new_fh.split(":")[0])
+		open_filehandles(new_fh.split(":")[1], new_fh.split(":")[0], TnoT)
 
-def open_filehandles(sample_level_barcode, fname):
-		print (f"Opening filehandle for {sample_level_barcode} and {fname}")
+def open_filehandles(sample_level_barcode, fname, TnoT):
+	print (f"Opening filehandle for {sample_level_barcode} and {fname} for {TnoT}")
+	if TnoT == "noT":
+		fhs_noT[sample_level_barcode] = gzip.open (fname,mode='wb',compresslevel=3)
+	else:
 		fhs[sample_level_barcode] = gzip.open (fname,mode='wb',compresslevel=3)
+
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)	
 
 def close_filehandles():
+	for name in fhs_noT.keys():
+		fhs_noT[name].close()
 	for name in fhs.keys():
 		fhs[name].close()
+
 
 if __name__ == "__main__":
 	submain()
