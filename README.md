@@ -1,6 +1,6 @@
 # TrAEL-seq
 
-A collection of scripts for and information about TrAEL-seq. Last update 21 July 2020
+A collection of scripts for and information about TrAEL-seq. 
 
 ### TrAEL-seq pre-processing (UMI and Poly-T handling)
 
