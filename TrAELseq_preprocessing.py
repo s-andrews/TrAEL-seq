@@ -5,7 +5,8 @@ from glob import glob
 from time import sleep
 import re
 
-# This script removes the first 8bp of a read and adds the sequence to the readID. The quality information is discarded
+# This script removes the first 8bp of a read and adds the sequence to the readID. 
+# The quality information is discarded
 
 # This is the expected structure of the FastQ files:
 
@@ -14,15 +15,16 @@ import re
 # After moving the UMI sequences, the script looks for up to 3 T at the start of the sequence, and removes those.
 # Sequences with more than 3 Ts at the 5' end are clipped a maximum of 3 TTT
 
-# Script last modified 21 July 2020, Felix Krueger
+# Script last modified  30 January 2024 Laura Biggins
 
 polyT = {}         # storing the number of Poly Ts at the start of the read (after the UMI)
 fhs = {}           # storing the filehandles for all output files
+fhs_noT = {}           # storing the filehandles for all no T output files
 
 def submain():
 	
 	print (f"Python version: {sys.version}.")
-	allfiles = glob("*.fastq.gz")
+	allfiles = sys.argv[1:]
 	# print (allfiles)
 	allfiles.sort() # required as glob doesn't necessarily store files in alphabetical order
 	# print (allfiles)
@@ -30,7 +32,9 @@ def submain():
 	for filename in allfiles:
 		print (f"Reading in FastQ file:\t >> {filename} <<\n")
 		main(filename)
-		polyT = {} # resetting
+		polyT.clear() # resetting
+		fhs.clear()   # resetting
+		fhs_noT.clear()   # resetting
 
 def main(filename):
 
@@ -40,9 +44,8 @@ def main(filename):
 	
 	print (f"Reading file: >{filename}<")
 	
-	outfh = make_out_filehandle("UMIed",filename)
-	pattern = '^T+'
-	p = re.compile(pattern)
+	outfhNoT = make_out_filehandle("UMIed",filename,"noT")
+	outfhT = make_out_filehandle("UMIed",filename,"T")
 
 	with gzip.open(filename) as cf:
 	
@@ -78,13 +81,16 @@ def main(filename):
 
 			## STEP 2: Now we need to find a number of PolyTs at the start
 
+			pattern = '^T+'
+			p = re.compile(pattern)
 			m = p.match(rest)
 
 			
 			if m is None:
 				# Using what we aleady have if the read does not have T(s) at the start
-				new_rest = rest
-				new_rest_qual = qual_rest
+				# we still want to remove a base even if it wasn't called as a T. The quality scores are low at this position as all the reads should have a T here.
+				new_rest = rest[1::]
+				new_rest_qual = qual_rest[1::]
 				
 			else:
 				polyTlength = len(m[0])
@@ -110,16 +116,19 @@ def main(filename):
 			readID = readID.replace(" ","_") # this is required for e.g. Bowtie2 to retain the last part of the read ID (= the UMI sequence)
 
 			
-			# print ("\n".join([readID, new_rest, line3, new_rest_qual]))
-			outfh.write (("\n".join([readID, new_rest, line3, new_rest_qual]) + "\n").encode())
+			if m is None:
+				outfhNoT.write (("\n".join([readID, new_rest, line3, new_rest_qual]) + "\n").encode())
+			else:
+				outfhT.write (("\n".join([readID, new_rest, line3, new_rest_qual]) + "\n").encode())
 	
-	outfh.close()
+	outfhNoT.close()
+	outfhT.close()
 	
 	print (f"Total number of reads processed: {count}")
 	for tees in sorted (polyT.keys()):
 		print (f"{tees}\t{polyT[tees]}")
 
-def make_out_filehandle(sample_name,filename):
+def make_out_filehandle(sample_name,filename,TnoT):
 	
 	print (f"Got following sample name: {sample_name}")
 	
@@ -131,7 +140,7 @@ def make_out_filehandle(sample_name,filename):
 	print (filename)
 	m = p.findall(filename)
 	sample = m[0][0]
-	ending = m[0][1]
+	ending = f"{TnoT}_{m[0][1]}"
 	new_filename = f"{sample}_{sample_name}_{ending}"
 	# print (new_filename)
 	
