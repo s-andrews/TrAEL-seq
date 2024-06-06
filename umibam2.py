@@ -48,7 +48,6 @@ lowqual_reads_processed = 0
 
 pos_umi_dict = {}
 umi_counts = {}
-chr_dict = {}
 umis_written = set()
 umis_written_lowqual = set()
 dup_pos_dict = {}
@@ -56,13 +55,13 @@ all_lowqual = {}
 
 all_chr = samfile.references
 
-# UmiBam only uses start position for single ended data as it may have been trimmed to different lengths
-# but then it does parse the cigar string. We're just going for the start position, then using the ref_end method to get the start of a read on the reverse strand.
+# The original UmiBam (this is umibam2) only uses start position for single ended data as it may have been trimmed to different lengths
+# but then it does parse the cigar string. We're just going for the start position, and not dealing with paired end reads
 
 # A read here is an AlignedSegment.
 # https://pysam.readthedocs.io/en/latest/usage.html
 for chr in all_chr:
-    chr_dict[chr] = {}
+    chr_dict = {}
     dup_pos_dict[chr] = set()
     all_reads_in_chr = samfile.fetch(reference=chr)
     for read in all_reads_in_chr:
@@ -84,88 +83,78 @@ for chr in all_chr:
                 print(f'Unknown flag value found {read.flag}')
 
             umi = read.query_name.split(":").pop()
-            if ref_start in chr_dict[chr]: # duplicate read position found
-                if umi in chr_dict[chr][ref_start]: # duplicate position and umi found, adding umi
+            if ref_start in chr_dict: # duplicate read position found
+                if umi in chr_dict[ref_start]: # duplicate position and umi found, adding umi
                     pos_umi_dup_count+=1 
-                    chr_dict[chr][ref_start][umi].append(read)
+                    chr_dict[ref_start][umi].append(read)
                     dup_pos_dict[chr].add(ref_start) # to keep track of the number of duplicated positions we find - this is a python set so won't allow duplicates                                     
-                else:
-                    chr_dict[chr][ref_start][umi] = [read]
-                    #chr_dict[chr][ref_start].append(umi) # umi is different, adding to set and writing out
+                else:  # duplicate position, but new umi
+                    chr_dict[ref_start][umi] = [read]                  
                     pos_not_umi_dup_count+=1
-                    #outfile.write(read)
-                    #umis_written.add(umi)
-            else:
-                chr_dict[chr][ref_start] = {} # probably a more concise way to do this
-                chr_dict[chr][ref_start][umi] = [read]
-                #chr_dict[chr][ref_start] = [umi] # adding new read position
+
+            else: # new read position, add the umi and read
+                chr_dict[ref_start] = {}
+                chr_dict[ref_start][umi] = [read]
                 first_occurrence+=1
-                #outfile.write(read)
-                #umis_written.add(umi)
-        else:
+
+        else: # low quality read
             lowqual_reads_processed+=1
             umi = read.query_name.split(":").pop() # ignoring position for mapq <= 20, instead using UMI + first 10 bases of sequence
             query_seq =  read.query_sequence
             longer_umi = umi+query_seq[:10]
             
             if longer_umi in all_lowqual:
-                all_lowqual[longer_umi].append(read) # this is appending to a list right?
+                all_lowqual[longer_umi].append(read) # this is appending to a list
 
             else: 
                 all_lowqual[longer_umi] = [read] # adding new long umi
 
-# Go through all the high qual reads for each position. 
-# If the position is unique, (only 1 umi) write out the read. 
-# If the position is duplicated but umi is unique, write out the read.
-# If the position and umi are duplicated select a random read from the list.                 
-# The seed has been set dependent on the umi sequence, so the same read should be selected if the script is run multiple times.
+    # Go through all the high qual reads for each position. 
+    # If the position is unique, (only 1 umi) write out the read. 
+    # If the position is duplicated but umi is unique, write out the read.
+    # If the position and umi are duplicated select a random read from the list.                 
+    # The seed has been set dependent on the umi sequence, so the same read should be selected if the script is run multiple times.
 
-chosen_read = None
-for chr in chr_dict:
-    for ref_start in chr_dict[chr]:
-        for umi in chr_dict[chr][ref_start]:
-            no_of_reads = len(chr_dict[chr][ref_start][umi])
-            if no_of_reads > 1:
-                #print(umi)
-                umi_seed = int(hashlib.sha256(umi.encode('utf-8')).hexdigest(), 16) % 10**3
+    chosen_read = None
+    for chr in chr_dict:
+        for ref_start in chr_dict:
+            for umi in chr_dict[ref_start]:
+                no_of_reads = len(chr_dict[ref_start][umi])
+                if no_of_reads > 1:
+                    umi_seed = int(hashlib.sha256(umi.encode('utf-8')).hexdigest(), 16) % 10**3
+                    random.seed(umi_seed)
+                    random_int = random.randint(0, no_of_reads-1)
+                    #print(f'random int = {random_int}')
+                    chosen_read = chr_dict[ref_start][umi][random_int]
+                else: 
+                    chosen_read = chr_dict[ref_start][umi][0] # Only 1 read with that umi and position so we write it out
+                    
+                outfile.write(chosen_read)
+                umis_written.add(umi)
+
+
+    # Go through all the low qual reads.
+    # If the extended umi is unique, write out the read.
+    # If the extended umi is duplicated, select a random read to write out.                 
+    # The seed has been set dependent on the umi sequence, so the same read should be selected if the script is run multiple times.
+    chosen_read = None
+    for longer_umi in all_lowqual:
+        no_of_reads = len(all_lowqual[longer_umi])
+        if no_of_reads >= 1: 
+            if no_of_reads > 1: 
+                umi_seed = int(hashlib.sha256(longer_umi.encode('utf-8')).hexdigest(), 16) % 10**3
                 random.seed(umi_seed)
                 random_int = random.randint(0, no_of_reads-1)
-                #print(f'random int = {random_int}')
-                chosen_read = chr_dict[chr][ref_start][umi][random_int]
-            else: 
-                chosen_read = chr_dict[chr][ref_start][umi][0] # Only 1 read with that umi and position so we write it out
+                chosen_read = all_lowqual[longer_umi][random_int]
+                removed_reads=no_of_reads-1
+                umi_dup+=removed_reads
                 
+            else:
+                chosen_read = all_lowqual[longer_umi][0] # There's only 1 read so we write it out 
+    
+            low_mapq_keep+=1
             outfile.write(chosen_read)
-            umis_written.add(umi)
-
-
-# Go through all the low qual reads.
-# If the extended umi is unique, write out the read.
-# If the extended umi id duplicated, select a random read to write out.                 
-# The seed has been set dependent on the umi sequence, so the same read should be selected if the script is run multiple times.
-chosen_read = None
-for longer_umi in all_lowqual:
-    no_of_reads = len(all_lowqual[longer_umi])
-    if no_of_reads >= 1: 
-        if no_of_reads > 1: 
-            #print (longer_umi)
-            #print(f'no of reads with same extended umi: {no_of_reads}')
-            umi_seed = int(hashlib.sha256(longer_umi.encode('utf-8')).hexdigest(), 16) % 10**3
-            #print(umi_seed)
-            random.seed(umi_seed)
-            random_int = random.randint(0, no_of_reads-1)
-            #print(f'random int = {random_int}')
-            chosen_read = all_lowqual[longer_umi][random_int]
-            removed_reads=no_of_reads-1
-            umi_dup+=removed_reads
-            
-        else:
-            chosen_read = all_lowqual[longer_umi][0] # There's only 1 read so we write it out 
-   
-        #print(f'chosen read = {chosen_read}')
-        low_mapq_keep+=1
-        outfile.write(chosen_read)
-            
+                
 
 outfile.close()
 
