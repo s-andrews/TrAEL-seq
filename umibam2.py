@@ -136,23 +136,23 @@ for chr in all_chr:
     # If the extended umi is unique, write out the read.
     # If the extended umi is duplicated, select a random read to write out.                 
     # The seed has been set dependent on the umi sequence, so the same read should be selected if the script is run multiple times.
-    chosen_read = None
-    for longer_umi in all_lowqual:
-        no_of_reads = len(all_lowqual[longer_umi])
-        if no_of_reads >= 1: 
-            if no_of_reads > 1: 
-                umi_seed = int(hashlib.sha256(longer_umi.encode('utf-8')).hexdigest(), 16) % 10**3
-                random.seed(umi_seed)
-                random_int = random.randint(0, no_of_reads-1)
-                chosen_read = all_lowqual[longer_umi][random_int]
-                removed_reads=no_of_reads-1
-                umi_dup+=removed_reads
-                
-            else:
-                chosen_read = all_lowqual[longer_umi][0] # There's only 1 read so we write it out 
-    
-            low_mapq_keep+=1
-            outfile.write(chosen_read)
+chosen_read = None
+for longer_umi in all_lowqual:
+    no_of_reads = len(all_lowqual[longer_umi])
+    if no_of_reads >= 1: 
+        if no_of_reads > 1: 
+            umi_seed = int(hashlib.sha256(longer_umi.encode('utf-8')).hexdigest(), 16) % 10**3
+            random.seed(umi_seed)
+            random_int = random.randint(0, no_of_reads-1)
+            chosen_read = all_lowqual[longer_umi][random_int]
+            removed_reads=no_of_reads-1
+            umi_dup+=removed_reads
+            
+        else:
+            chosen_read = all_lowqual[longer_umi][0] # There's only 1 read so we write it out 
+
+        low_mapq_keep+=1
+        outfile.write(chosen_read)
                 
 
 outfile.close()
