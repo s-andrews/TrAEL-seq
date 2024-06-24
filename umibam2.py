@@ -116,21 +116,20 @@ for chr in all_chr:
     # The seed has been set dependent on the umi sequence, so the same read should be selected if the script is run multiple times.
 
     chosen_read = None
-    for chr in chr_dict:
-        for ref_start in chr_dict:
-            for umi in chr_dict[ref_start]:
-                no_of_reads = len(chr_dict[ref_start][umi])
-                if no_of_reads > 1:
-                    umi_seed = int(hashlib.sha256(umi.encode('utf-8')).hexdigest(), 16) % 10**3
-                    random.seed(umi_seed)
-                    random_int = random.randint(0, no_of_reads-1)
-                    #print(f'random int = {random_int}')
-                    chosen_read = chr_dict[ref_start][umi][random_int]
-                else: 
-                    chosen_read = chr_dict[ref_start][umi][0] # Only 1 read with that umi and position so we write it out
-                    
-                outfile.write(chosen_read)
-                umis_written.add(umi)
+    for ref_start in chr_dict:
+        for umi in chr_dict[ref_start]:
+            no_of_reads = len(chr_dict[ref_start][umi])
+            if no_of_reads > 1:
+                umi_seed = int(hashlib.sha256(umi.encode('utf-8')).hexdigest(), 16) % 10**3
+                random.seed(umi_seed)
+                random_int = random.randint(0, no_of_reads-1)
+                #print(f'random int = {random_int}')
+                chosen_read = chr_dict[ref_start][umi][random_int]
+            else: 
+                chosen_read = chr_dict[ref_start][umi][0] # Only 1 read with that umi and position so we write it out
+                
+            outfile.write(chosen_read)
+            umis_written.add(umi)
 
 
     # Go through all the low qual reads.
